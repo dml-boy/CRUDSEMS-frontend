@@ -29,33 +29,38 @@ export default function Register() {
 
   const togglePassword = () => setShowPassword((prev) => !prev);
 
-  const onSubmit = async (data: RegisterFormData) => {
-    try {
-      const resultAction = await dispatch(registerUser(data));
+const onSubmit = async (data: RegisterFormData) => {
+  try {
+    const resultAction = await dispatch(registerUser(data));
 
-if (registerUser.fulfilled.match(resultAction)) {
-  const { user, accessToken } = resultAction.payload as AuthResponse;
+    if (registerUser.fulfilled.match(resultAction)) {
+      const { user, accessToken } = resultAction.payload as AuthResponse;
 
-  // ✅ Save token and user info
-  localStorage.setItem('token', accessToken);
-  localStorage.setItem('user', JSON.stringify(user));
+      localStorage.setItem('token', accessToken);
+      localStorage.setItem('user', JSON.stringify(user));
 
-  toast.success('Registration successful!');
+      toast.success('Registration successful!');
 
-  // ✅ Redirect by role
-  if (user.role === 'ADMIN') {
-    navigate('/dashboard/admin');
-  } else if (user.role === 'EMPLOYEE') {
-    navigate('/dashboard/employee');
-  } else {
-    navigate('/dashboard');
-  }
-}
+      // Redirect by role
+      if (user.role === 'ADMIN') {
+        navigate('/dashboard/admin');
+      } else if (user.role === 'EMPLOYEE') {
+        navigate('/dashboard/employee');
+      } else {
+        navigate('/dashboard');
+      }
 
-    } catch (err) {
-      toast.error('Unexpected error occurred');
+    } else if (registerUser.rejected.match(resultAction)) {
+      const error = resultAction.payload || 'Registration failed';
+      toast.error(error);
     }
-  };
+
+  } catch (err) {
+    console.error('Unexpected registration error:', err);
+    toast.error('Unexpected error occurred');
+  }
+};
+
 
   return (
     <div className="container d-flex justify-content-center align-items-center min-vh-100 bg-light">
