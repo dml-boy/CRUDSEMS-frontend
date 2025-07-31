@@ -50,7 +50,7 @@ const schema = yup.object().shape({
   amount: yup.number().required('Amount is required').positive().integer().min(1, 'Amount must be at least 1'),
 });
 
-const API_URL = process.env.REACT_APP_API_URL || 'https://backend-g4qt.onrender.com';
+const API_URL =  'https://backend-g4qt.onrender.com';
 
 export default function DashboardAdmin() {
   const [employees, setEmployees] = useState<Employee[]>([]);
