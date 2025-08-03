@@ -24,7 +24,7 @@ interface Employee {
   email: string;
   name: string;
   role: 'ADMIN' | 'EMPLOYEE';
-  staffPoints: number;
+  staffPoints: number | null;
 }
 
 interface Transaction {
@@ -50,18 +50,20 @@ const schema = yup.object().shape({
   amount: yup.number().required('Amount is required').positive().integer().min(1, 'Amount must be at least 1'),
 });
 
-const API_URL =  'https://backend-g4qt.onrender.com';
+const API_URL = 'https://backend-g4qt.onrender.com';
 
 export default function DashboardAdmin() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [admins, setAdmins] = useState<Employee[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [balance, setBalance] = useState<AdminBalance | null>(null);
-  const [isLoadingEmployees, setIsLoadingEmployees] = useState(false);
-  const [isLoadingAdmins, setIsLoadingAdmins] = useState(false);
-  const [isLoadingTransactions, setIsLoadingTransactions] = useState(false);
-  const [isLoadingBalance, setIsLoadingBalance] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [loading, setLoading] = useState({
+    employees: false,
+    admins: false,
+    transactions: false,
+    balance: false,
+    submitting: false,
+  });
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [showAdmins, setShowAdmins] = useState(false);
@@ -76,16 +78,27 @@ export default function DashboardAdmin() {
     resolver: yupResolver(schema),
   });
 
+  const setLoadingState = (key: keyof typeof loading, value: boolean) =>
+    setLoading((prev) => ({ ...prev, [key]: value }));
+
   const handleAxiosError = (error: unknown, defaultMessage: string) => {
     if (isAxiosError(error)) {
-      toast.error(error.response?.data?.message || defaultMessage);
+      const status = error.response?.status;
+      const message = error.response?.data?.message || defaultMessage;
+      if (status === 401) {
+        toast.error('Unauthorized: Please log in again');
+      } else if (status === 400) {
+        toast.error(`Bad Request: ${message}`);
+      } else {
+        toast.error(message);
+      }
     } else {
       toast.error(defaultMessage);
     }
   };
 
   const fetchEmployees = (page = 1, limit = 10) => {
-    setIsLoadingEmployees(true);
+    setLoadingState('employees', true);
     axios
       .get(`${API_URL}/api/users`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
@@ -93,26 +106,20 @@ export default function DashboardAdmin() {
       })
       .then((response) => {
         console.log('fetchEmployees response:', response.data);
-        const users = response.data.users
-          ? Array.isArray(response.data.users)
-            ? response.data.users
-            : []
-          : Array.isArray(response.data)
-            ? response.data
-            : [];
+        const users = Array.isArray(response.data.users) ? response.data.users : [];
         setEmployees(users);
-        setTotalPages(Math.ceil(response.data.total / limit));
+        setTotalPages(Math.ceil((response.data.total || 0) / limit));
       })
       .catch((error) => {
         console.error('fetchEmployees error:', error);
         handleAxiosError(error, 'Failed to fetch employees');
         setEmployees([]);
       })
-      .finally(() => setIsLoadingEmployees(false));
+      .finally(() => setLoadingState('employees', false));
   };
 
   const fetchAdmins = () => {
-    setIsLoadingAdmins(true);
+    setLoadingState('admins', true);
     axios
       .get(`${API_URL}/api/admin/all`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
@@ -126,11 +133,11 @@ export default function DashboardAdmin() {
         handleAxiosError(error, 'Failed to fetch admins');
         setAdmins([]);
       })
-      .finally(() => setIsLoadingAdmins(false));
+      .finally(() => setLoadingState('admins', false));
   };
 
   const fetchTransactions = (page: number) => {
-    setIsLoadingTransactions(true);
+    setLoadingState('transactions', true);
     axios
       .get<{ transactions: Transaction[]; total: number }>(
         `${API_URL}/api/transactions?page=${page}&limit=${limit}`,
@@ -148,25 +155,28 @@ export default function DashboardAdmin() {
         handleAxiosError(error, 'Failed to fetch transactions');
         setTransactions([]);
       })
-      .finally(() => setIsLoadingTransactions(false));
+      .finally(() => setLoadingState('transactions', false));
   };
 
   const fetchAdminBalance = () => {
-    setIsLoadingBalance(true);
+    setLoadingState('balance', true);
     axios
       .get<AdminBalance>(`${API_URL}/api/admin/balance`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       })
       .then((response) => {
         console.log('fetchAdminBalance response:', response.data);
-        setBalance(response.data);
+        setBalance({
+          availablePoints: Math.floor(Number(response.data.availablePoints)),
+          allocatedPoints: Math.floor(Number(response.data.allocatedPoints)),
+        });
       })
       .catch((error) => {
         console.error('fetchAdminBalance error:', error);
         handleAxiosError(error, 'Failed to fetch balance');
         setBalance(null);
       })
-      .finally(() => setIsLoadingBalance(false));
+      .finally(() => setLoadingState('balance', false));
   };
 
   useEffect(() => {
@@ -182,7 +192,7 @@ export default function DashboardAdmin() {
       amount: data.amount,
     };
     console.log('Submitting points allocation:', payload);
-    setIsSubmitting(true);
+    setLoadingState('submitting', true);
     axios
       .post(`${API_URL}/api/staff-points/allocate`, payload, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
@@ -198,7 +208,7 @@ export default function DashboardAdmin() {
         console.error('allocatePoints error:', error);
         handleAxiosError(error, 'Failed to allocate points');
       })
-      .finally(() => setIsSubmitting(false));
+      .finally(() => setLoadingState('submitting', false));
   };
 
   const handlePageChange = (page: number) => {
@@ -207,8 +217,15 @@ export default function DashboardAdmin() {
     }
   };
 
+  const getPaginationRange = () => {
+    const maxPagesToShow = 5;
+    const start = Math.max(1, currentPage - Math.floor(maxPagesToShow / 2));
+    const end = Math.min(totalPages, start + maxPagesToShow - 1);
+    return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+  };
+
   const initializeAdminPoints = () => {
-    setIsSubmitting(true);
+    setLoadingState('submitting', true);
     axios
       .post(`${API_URL}/api/admin/points/initialize`, {}, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
@@ -216,12 +233,13 @@ export default function DashboardAdmin() {
       .then(() => {
         toast.success('Admin points initialized successfully');
         fetchAdmins();
+        fetchAdminBalance();
       })
       .catch((error) => {
         console.error('initializeAdminPoints error:', error);
         handleAxiosError(error, 'Failed to initialize admin points');
       })
-      .finally(() => setIsSubmitting(false));
+      .finally(() => setLoadingState('submitting', false));
   };
 
   return (
@@ -435,6 +453,11 @@ export default function DashboardAdmin() {
           Admin Dashboard
         </motion.h2>
 
+        {/* Debug Balance in Development */}
+        {process.env.NODE_ENV === 'development' && balance && (
+          <pre className="text-center">Raw Balance: {JSON.stringify(balance, null, 2)}</pre>
+        )}
+
         {/* Balance Overview */}
         <Row className="mb-4 mb-md-5">
           <Col>
@@ -443,7 +466,7 @@ export default function DashboardAdmin() {
                 <Card.Title className="text-dark mb-3 mb-md-4 fw-semibold">
                   Points Overview
                 </Card.Title>
-                {isLoadingBalance ? (
+                {loading.balance ? (
                   <div className="text-center">
                     <Spinner animation="border" variant="primary" />
                   </div>
@@ -495,6 +518,7 @@ export default function DashboardAdmin() {
                     <Form.Select
                       {...register('recipientId')}
                       className={`form-select-lg ${errors.recipientId ? 'is-invalid' : ''}`}
+                      aria-label="Select recipient"
                     >
                       <option value="">Select a recipient</option>
                       {Array.isArray(employees) &&
@@ -521,6 +545,7 @@ export default function DashboardAdmin() {
                       {...register('amount')}
                       placeholder="Enter points to allocate"
                       className={`form-control-lg ${errors.amount ? 'is-invalid' : ''}`}
+                      aria-label="Points amount"
                     />
                     {errors.amount && <div className="invalid-feedback">{errors.amount.message}</div>}
                   </Form.Group>
@@ -528,9 +553,10 @@ export default function DashboardAdmin() {
                     variant="primary"
                     type="submit"
                     className="w-100 fw-bold"
-                    disabled={isSubmitting}
+                    disabled={loading.submitting}
+                    aria-label={loading.submitting ? 'Submitting points transfer' : 'Transfer points'}
                   >
-                    {isSubmitting ? <Spinner size="sm" animation="border" /> : 'Transfer Points'}
+                    {loading.submitting ? <Spinner size="sm" animation="border" /> : 'Transfer Points'}
                   </Button>
                 </Form>
               </Card.Body>
@@ -542,7 +568,7 @@ export default function DashboardAdmin() {
                 <Card.Title className="text-dark mb-3 mb-md-4 fw-semibold">
                   Quick Stats
                 </Card.Title>
-                {isLoadingEmployees || isLoadingAdmins ? (
+                {loading.employees || loading.admins ? (
                   <div className="text-center">
                     <Spinner animation="border" variant="primary" />
                   </div>
@@ -583,10 +609,11 @@ export default function DashboardAdmin() {
             <Button
               variant="primary"
               onClick={initializeAdminPoints}
-              disabled={isSubmitting}
+              disabled={loading.submitting}
               className="w-100 fw-bold"
+              aria-label={loading.submitting ? 'Initializing points' : 'Initialize 1B points for admins'}
             >
-              {isSubmitting ? <Spinner size="sm" animation="border" /> : 'Initialize 1B Points for Admins'}
+              {loading.submitting ? <Spinner size="sm" animation="border" /> : 'Initialize 1B Points for Admins'}
             </Button>
           </Col>
         </Row>
@@ -605,6 +632,7 @@ export default function DashboardAdmin() {
                       variant={showAdmins ? 'outline-primary' : 'primary'}
                       size="sm"
                       onClick={() => setShowAdmins(false)}
+                      aria-label="Show employees"
                     >
                       Show Employees
                     </Button>
@@ -612,6 +640,7 @@ export default function DashboardAdmin() {
                       variant={showAdmins ? 'primary' : 'outline-primary'}
                       size="sm"
                       onClick={() => setShowAdmins(true)}
+                      aria-label="Show admins"
                     >
                       Show Admins
                     </Button>
@@ -628,7 +657,7 @@ export default function DashboardAdmin() {
                   </div>
                 </div>
 
-                {(showAdmins ? isLoadingAdmins : isLoadingEmployees) ? (
+                {(showAdmins ? loading.admins : loading.employees) ? (
                   <div className="text-center py-4 py-md-5">
                     <Spinner animation="border" variant="primary" />
                     <p className="mt-2 text-muted">Loading {showAdmins ? 'admins' : 'employees'}...</p>
@@ -708,7 +737,7 @@ export default function DashboardAdmin() {
                     Page {currentPage} of {totalPages}
                   </Badge>
                 </div>
-                {isLoadingTransactions ? (
+                {loading.transactions ? (
                   <div className="text-center py-4 py-md-5">
                     <Spinner animation="border" variant="primary" />
                     <p className="mt-2 text-muted">Loading transactions...</p>
@@ -726,52 +755,49 @@ export default function DashboardAdmin() {
                             <th>Date</th>
                           </tr>
                         </thead>
-                       <tbody>
-  {Array.isArray(transactions) && transactions.length > 0 ? (
-    transactions.map((transaction) => {
-      const sender =
-        (showAdmins ? admins : employees)?.find((e) => e.id === transaction.senderId)?.name || 'System';
-
-      const recipient =
-        (showAdmins ? admins : employees)?.find((e) => e.id === transaction.recipientId)?.name || 'Unknown';
-
-      return (
-        <motion.tr
-          key={transaction.id}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.3 }}
-        >
-          <td>{transaction.id}</td>
-          <td>{sender}</td>
-          <td>{recipient}</td>
-          <td className="text-end fw-bold">
-            <Badge bg={transaction.amount > 0 ? 'success' : 'danger'}>
-              {transaction.amount > 0 ? '+' : ''}
-              {transaction.amount.toLocaleString()}
-            </Badge>
-          </td>
-          <td>
-            {new Date(transaction.timestamp).toLocaleString('en-US', {
-              year: 'numeric',
-              month: 'short',
-              day: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
-          </td>
-        </motion.tr>
-      );
-    })
-  ) : (
-    <tr>
-      <td colSpan={5} className="text-center text-muted">
-        No transactions found
-      </td>
-    </tr>
-  )}
-</tbody>
-
+                        <tbody>
+                          {Array.isArray(transactions) && transactions.length > 0 ? (
+                            transactions.map((transaction) => {
+                              const sender =
+                                (showAdmins ? admins : employees)?.find((e) => e.id === transaction.senderId)?.name || 'System';
+                              const recipient =
+                                (showAdmins ? admins : employees)?.find((e) => e.id === transaction.recipientId)?.name || 'Unknown';
+                              return (
+                                <motion.tr
+                                  key={transaction.id}
+                                  initial={{ opacity: 0 }}
+                                  animate={{ opacity: 1 }}
+                                  transition={{ duration: 0.3 }}
+                                >
+                                  <td>{transaction.id}</td>
+                                  <td>{sender}</td>
+                                  <td>{recipient}</td>
+                                  <td className="text-end fw-bold">
+                                    <Badge bg={transaction.amount > 0 ? 'success' : 'danger'}>
+                                      {transaction.amount > 0 ? '+' : ''}
+                                      {transaction.amount.toLocaleString()}
+                                    </Badge>
+                                  </td>
+                                  <td>
+                                    {new Date(transaction.timestamp).toLocaleString('en-US', {
+                                      year: 'numeric',
+                                      month: 'short',
+                                      day: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })}
+                                  </td>
+                                </motion.tr>
+                              );
+                            })
+                          ) : (
+                            <tr>
+                              <td colSpan={5} className="text-center text-muted">
+                                No transactions found
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
                       </Table>
                     </div>
                     <div className="d-flex justify-content-center mt-3 mt-md-4">
@@ -779,31 +805,22 @@ export default function DashboardAdmin() {
                         <Pagination.Prev
                           onClick={() => handlePageChange(currentPage - 1)}
                           disabled={currentPage === 1}
+                          aria-label="Previous page"
                         />
-                        {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                          let pageNum: number;
-                          if (totalPages <= 5) {
-                            pageNum = i + 1;
-                          } else if (currentPage <= 3) {
-                            pageNum = i + 1;
-                          } else if (currentPage >= totalPages - 2) {
-                            pageNum = totalPages - 4 + i;
-                          } else {
-                            pageNum = currentPage - 2 + i;
-                          }
-                          return (
-                            <Pagination.Item
-                              key={pageNum}
-                              active={pageNum === currentPage}
-                              onClick={() => handlePageChange(pageNum)}
-                            >
-                              {pageNum}
-                            </Pagination.Item>
-                          );
-                        })}
+                        {getPaginationRange().map((pageNum) => (
+                          <Pagination.Item
+                            key={pageNum}
+                            active={pageNum === currentPage}
+                            onClick={() => handlePageChange(pageNum)}
+                            aria-label={`Page ${pageNum}`}
+                          >
+                            {pageNum}
+                          </Pagination.Item>
+                        ))}
                         <Pagination.Next
                           onClick={() => handlePageChange(currentPage + 1)}
                           disabled={currentPage === totalPages}
+                          aria-label="Next page"
                         />
                       </Pagination>
                     </div>
