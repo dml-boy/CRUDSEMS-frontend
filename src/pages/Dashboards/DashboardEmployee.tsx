@@ -5,32 +5,16 @@ import {
   Col,
   Card,
   Table,
-  Form,
-  Button,
   Spinner,
   Pagination,
   Badge,
   Alert,
-  ListGroup,
-  ProgressBar,
 } from 'react-bootstrap';
 import { motion } from 'framer-motion';
-import { useForm } from 'react-hook-form';
 import { useAppSelector } from '../../hooks';
-import { yupResolver } from '@hookform/resolvers/yup';
-import * as yup from 'yup';
 import { toast } from 'react-toastify';
 import axios, { isAxiosError } from 'axios';
-import { FaUserTie, FaUser, FaExchangeAlt, FaCoins, FaHistory } from 'react-icons/fa';
-
-interface Employee {
-  id: number;
-  email: string;
-  name: string;
-  role: 'ADMIN' | 'EMPLOYEE';
-  staffPoints: number;
-  lastLogin?: string;
-}
+import { FaCoins, FaHistory } from 'react-icons/fa';
 
 interface Transaction {
   id: number;
@@ -42,51 +26,18 @@ interface Transaction {
   recipientName?: string;
 }
 
-interface TransferPointsForm {
-  recipientId: number;
-  amount: number;
-  note?: string;
-}
-
-const schema = yup.object({
-  recipientId: yup.number().required('Recipient is required').positive().integer(),
-  amount: yup.number().required('Amount is required').positive().integer().min(1, 'Amount must be at least 1'),
-  note: yup.string().max(100, 'Note must be less than 100 characters').optional(),
-});
-
 const API_URL = 'https://backend-g4qt.onrender.com';
 
 export default function DashboardEmployee() {
   const { user } = useAppSelector((state) => state.auth);
-  const [employees, setEmployees] = useState<Employee[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState({
-    employees: false,
     transactions: false,
-    submitting: false,
   });
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [selectedUser, setSelectedUser] = useState<Employee | null>(null);
   const limit = 10;
 
-  const {
-    register,
-    handleSubmit,
-    reset,
-    setValue,
-    watch,
-    formState: { errors },
-  } = useForm<TransferPointsForm>({
-    resolver: yupResolver(schema),
-    defaultValues: {
-      recipientId: 0,
-      amount: 100,
-      note: '',
-    },
-  });
-
-  const recipientId = watch('recipientId');
   const token = localStorage.getItem('token');
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -109,21 +60,6 @@ export default function DashboardEmployee() {
     }
   };
 
-  const fetchEmployees = (page = 1, limit = 10) => {
-    setLoadingState('employees', true);
-    axios
-      .get(`${API_URL}/api/users`, { headers, params: { page, limit } })
-      .then((response) => {
-        setEmployees(response.data.users || []);
-        setTotalPages(Math.ceil((response.data.total || 0) / limit));
-      })
-      .catch((error) => {
-        handleAxiosError(error, 'Failed to fetch employees');
-        setEmployees([]);
-      })
-      .finally(() => setLoadingState('employees', false));
-  };
-
   const fetchTransactions = (page: number) => {
     setLoadingState('transactions', true);
     axios
@@ -144,35 +80,13 @@ export default function DashboardEmployee() {
       .finally(() => setLoadingState('transactions', false));
   };
 
-  const onSubmit = (data: TransferPointsForm) => {
-    setLoadingState('submitting', true);
-    axios
-      .post(`${API_URL}/api/staff-points/transfer`, data, { headers })
-      .then(() => {
-        toast.success(`Successfully transferred ${data.amount} points`);
-        reset();
-        fetchEmployees();
-        fetchTransactions(currentPage);
-      })
-      .catch((error) => {
-        handleAxiosError(error, 'Failed to transfer points');
-      })
-      .finally(() => setLoadingState('submitting', false));
-  };
-
   const handlePageChange = (page: number) => {
     if (page >= 1 && page <= totalPages) {
       setCurrentPage(page);
     }
   };
 
-  const selectUserForTransfer = (employee: Employee) => {
-    setSelectedUser(employee);
-    setValue('recipientId', employee.id);
-  };
-
   useEffect(() => {
-    fetchEmployees(currentPage, limit);
     fetchTransactions(currentPage);
   }, [currentPage, limit]);
 
@@ -211,16 +125,6 @@ export default function DashboardEmployee() {
             padding: 1.25rem 1.5rem;
           }
           
-          .bank-primary {
-            background-color: #0052cc;
-            border-color: #0052cc;
-          }
-          
-          .bank-primary:hover {
-            background-color: #003d99;
-            border-color: #003d99;
-          }
-          
           .bank-account-balance {
             font-size: 2rem;
             font-weight: 700;
@@ -254,38 +158,6 @@ export default function DashboardEmployee() {
           .bank-transaction-negative {
             color: #dc3545;
             font-weight: 600;
-          }
-          
-          .bank-user-list-item {
-            cursor: pointer;
-            transition: background-color 0.2s;
-            border-radius: 8px;
-            padding: 0.75rem 1rem;
-          }
-          
-          .bank-user-list-item:hover {
-            background-color: rgba(0, 82, 204, 0.05);
-          }
-          
-          .bank-user-list-item.active {
-            background-color: rgba(0, 82, 204, 0.1);
-            border-left: 3px solid #0052cc;
-          }
-          
-          .bank-form-control {
-            border-radius: 8px;
-            padding: 0.75rem 1rem;
-            border: 1px solid #e0e0e0;
-          }
-          
-          .bank-form-control:focus {
-            border-color: #0052cc;
-            box-shadow: 0 0 0 0.2rem rgba(0, 82, 204, 0.25);
-          }
-          
-          .bank-icon {
-            margin-right: 8px;
-            color: #0052cc;
           }
           
           @media (max-width: 768px) {
@@ -324,7 +196,7 @@ export default function DashboardEmployee() {
                     <h6 className="mb-0 text-muted">Your Balance</h6>
                     {user ? (
                       <h3 className="bank-account-balance mb-0">
-                        {user.staffPoints?.toLocaleString() || '0'} pts
+                        {user.staffPoints.toLocaleString() || '0'} pts
                       </h3>
                     ) : (
                       <Spinner animation="border" size="sm" />
@@ -334,114 +206,15 @@ export default function DashboardEmployee() {
               </Card.Body>
             </Card>
           </Col>
-          
-          <Col md={6} lg={4}>
-            <Card className="bank-card h-100">
-              <Card.Body className="p-4">
-                <div className="d-flex align-items-center mb-3">
-                  <div className="bg-success bg-opacity-10 rounded p-2 me-3">
-                    <FaExchangeAlt size={24} className="text-success" />
-                  </div>
-                  <div>
-                    <h6 className="mb-0 text-muted">Recent Activity</h6>
-                    <h3 className="text-success mb-0">
-                      {transactions.length} transactions
-                    </h3>
-                  </div>
-                </div>
-              </Card.Body>
-            </Card>
-          </Col>
         </Row>
 
-        {/* Main Content */}
+        {/* Transaction History */}
         <Row className="g-4">
-          {/* Transfer Form */}
-          <Col lg={6}>
+          <Col lg={12}>
             <Card className="bank-card">
               <Card.Header className="bank-card-header d-flex align-items-center">
-                <FaExchangeAlt className="bank-icon" />
-                <span>Transfer Points</span>
-              </Card.Header>
-              <Card.Body>
-                <Form onSubmit={handleSubmit(onSubmit)}>
-                  <Row className="g-3">
-                    <Col md={6}>
-                      <Form.Group>
-                        <Form.Label>Recipient</Form.Label>
-                        <Form.Control
-                          as="select"
-                          {...register('recipientId')}
-                          className={`bank-form-control ${errors.recipientId ? 'is-invalid' : ''}`}
-                          disabled={loading.employees}
-                        >
-                          <option value="">Select recipient</option>
-                          {employees.map((employee) => (
-                            <option key={employee.id} value={employee.id}>
-                              {employee.name} ({employee.role === 'ADMIN' ? 'Admin' : 'Employee'})
-                            </option>
-                          ))}
-                        </Form.Control>
-                        {errors.recipientId && (
-                          <div className="invalid-feedback">{errors.recipientId.message}</div>
-                        )}
-                      </Form.Group>
-                    </Col>
-                    <Col md={6}>
-                      <Form.Group>
-                        <Form.Label>Amount</Form.Label>
-                        <Form.Control
-                          type="number"
-                          {...register('amount')}
-                          className={`bank-form-control ${errors.amount ? 'is-invalid' : ''}`}
-                          placeholder="Enter amount"
-                        />
-                        {errors.amount && (
-                          <div className="invalid-feedback">{errors.amount.message}</div>
-                        )}
-                      </Form.Group>
-                    </Col>
-                    <Col xs={12}>
-                      <Form.Group>
-                        <Form.Label>Note (Optional)</Form.Label>
-                        <Form.Control
-                          as="textarea"
-                          {...register('note')}
-                          className="bank-form-control"
-                          rows={2}
-                          placeholder="Add a note about this transfer"
-                        />
-                      </Form.Group>
-                    </Col>
-                    <Col xs={12}>
-                      <Button
-                        variant="primary"
-                        type="submit"
-                        className="bank-primary w-100"
-                        disabled={loading.submitting}
-                      >
-                        {loading.submitting ? (
-                          <Spinner size="sm" animation="border" />
-                        ) : (
-                          <>
-                            <FaExchangeAlt className="me-2" />
-                            Transfer Points
-                          </>
-                        )}
-                      </Button>
-                    </Col>
-                  </Row>
-                </Form>
-              </Card.Body>
-            </Card>
-          </Col>
-
-          {/* Recent Transactions */}
-          <Col lg={6}>
-            <Card className="bank-card h-100">
-              <Card.Header className="bank-card-header d-flex align-items-center">
                 <FaHistory className="bank-icon" />
-                <span>Recent Transactions</span>
+                <span>Your Transaction History</span>
                 <Badge bg="light" text="dark" className="ms-auto">
                   Page {currentPage} of {totalPages}
                 </Badge>

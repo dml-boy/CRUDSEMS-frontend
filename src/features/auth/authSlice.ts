@@ -5,7 +5,9 @@ import api from '../../utils/axios';
 export interface User {
   id: number;
   email: string;
+  name: string;
   role: 'ADMIN' | 'EMPLOYEE';
+  staffPoints: number;
 }
 
 export interface AuthResponse {
@@ -19,6 +21,7 @@ export interface AuthState {
   token: string | null;
   isAuthenticated: boolean;
   error: string | null;
+  loading: boolean;
 }
 
 // Helpers
@@ -41,11 +44,10 @@ const initialState: AuthState = {
   token: storedToken || null,
   isAuthenticated: !!storedToken,
   error: null,
+  loading: false,
 };
 
 // Async Thunks
-
-// Register
 export const registerUser = createAsyncThunk<
   AuthResponse,
   { name: string; email: string; password: string; role: string },
@@ -53,22 +55,14 @@ export const registerUser = createAsyncThunk<
 >('auth/registerUser', async (data, { rejectWithValue }) => {
   try {
     const res = await api.post<AuthResponse>('/auth/register', data);
-    
-    // ✅ Save to localStorage immediately
     saveAuthToLocalStorage(res.data.user, res.data.accessToken);
-    
-    // ✅ Set default Authorization header
     api.defaults.headers.common['Authorization'] = `Bearer ${res.data.accessToken}`;
-    
     return res.data;
   } catch (err: any) {
     return rejectWithValue(err.response?.data?.error || 'Registration failed');
   }
 });
 
-
-
-// Login
 export const loginUser = createAsyncThunk<
   AuthResponse,
   { email: string; password: string },
@@ -77,19 +71,19 @@ export const loginUser = createAsyncThunk<
   try {
     const res = await api.post<AuthResponse>('/auth/login', data);
     saveAuthToLocalStorage(res.data.user, res.data.accessToken);
+    api.defaults.headers.common['Authorization'] = `Bearer ${res.data.accessToken}`;
     return res.data;
   } catch (err: any) {
     return rejectWithValue(err.response?.data?.error || 'Invalid credentials');
   }
 });
 
-// Get Me
 export const getMe = createAsyncThunk<User, void, { rejectValue: string }>(
   'auth/getMe',
   async (_, { rejectWithValue }) => {
     try {
       const res = await api.get<User>('/auth/me');
-      localStorage.setItem('user', JSON.stringify(res.data));
+      saveAuthToLocalStorage(res.data, localStorage.getItem('token') || '');
       return res.data;
     } catch (err: any) {
       clearAuthFromLocalStorage();
@@ -98,13 +92,13 @@ export const getMe = createAsyncThunk<User, void, { rejectValue: string }>(
   }
 );
 
-// Logout
 export const logoutUser = createAsyncThunk<void, void, { rejectValue: string }>(
   'auth/logoutUser',
   async (_, { rejectWithValue }) => {
     try {
       await api.get('/auth/logout');
       clearAuthFromLocalStorage();
+      delete api.defaults.headers.common['Authorization'];
     } catch (err: any) {
       return rejectWithValue(err.response?.data?.error || 'Logout failed');
     }
@@ -115,62 +109,86 @@ export const logoutUser = createAsyncThunk<void, void, { rejectValue: string }>(
 const authSlice = createSlice({
   name: 'auth',
   initialState,
-  reducers: {},
+  reducers: {
+    clearError: (state) => {
+      state.error = null;
+    },
+  },
   extraReducers: (builder) => {
     builder
       // Register
-   .addCase(registerUser.fulfilled, (state, action) => {
-  state.user = action.payload.user;
-  state.token = action.payload.accessToken;
-  state.isAuthenticated = true;
-  state.error = null;
-  saveAuthToLocalStorage(action.payload.user, action.payload.accessToken);
-})
+      .addCase(registerUser.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(registerUser.fulfilled, (state, action) => {
+        state.user = action.payload.user;
+        state.token = action.payload.accessToken;
+        state.isAuthenticated = true;
+        state.error = null;
+        state.loading = false;
+      })
+      .addCase(registerUser.rejected, (state, action) => {
+        state.error = action.payload || 'Registration failed';
+        state.loading = false;
+      })
 
       // Login
+      .addCase(loginUser.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
       .addCase(loginUser.fulfilled, (state, action) => {
         state.user = action.payload.user;
         state.token = action.payload.accessToken;
         state.isAuthenticated = true;
         state.error = null;
+        state.loading = false;
       })
       .addCase(loginUser.rejected, (state, action) => {
-        Object.assign(state, {
-          user: null,
-          token: null,
-          isAuthenticated: false,
-          error: action.payload || 'Login failed',
-        });
+        state.user = null;
+        state.token = null;
+        state.isAuthenticated = false;
+        state.error = action.payload || 'Login failed';
+        state.loading = false;
       })
 
       // Get Me
+      .addCase(getMe.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
       .addCase(getMe.fulfilled, (state, action) => {
         state.user = action.payload;
         state.isAuthenticated = true;
         state.error = null;
+        state.loading = false;
       })
       .addCase(getMe.rejected, (state, action) => {
-        Object.assign(state, {
-          user: null,
-          token: null,
-          isAuthenticated: false,
-          error: action.payload || 'Failed to fetch user',
-        });
+        state.user = null;
+        state.token = null;
+        state.isAuthenticated = false;
+        state.error = action.payload || 'Failed to fetch user';
+        state.loading = false;
       })
 
       // Logout
+      .addCase(logoutUser.pending, (state) => {
+        state.loading = true;
+      })
       .addCase(logoutUser.fulfilled, (state) => {
-        Object.assign(state, {
-          user: null,
-          token: null,
-          isAuthenticated: false,
-          error: null,
-        });
+        state.user = null;
+        state.token = null;
+        state.isAuthenticated = false;
+        state.error = null;
+        state.loading = false;
       })
       .addCase(logoutUser.rejected, (state, action) => {
         state.error = action.payload || 'Logout failed';
+        state.loading = false;
       });
   },
 });
 
+export const { clearError } = authSlice.actions;
 export default authSlice.reducer;
