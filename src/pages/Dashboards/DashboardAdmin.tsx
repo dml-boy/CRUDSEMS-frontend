@@ -106,25 +106,25 @@ export default function DashboardAdmin() {
       toast.error(defaultMessage);
     }
   };
+const fetchUsers = (page = 1, limit = 10) => {
+  setLoadingState('users', true);
+  axios
+    .get(`${API_URL}/api/users`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      params: { page, limit },
+    })
+    .then((response) => {
+      const allUsers = response.data.users || []; // ✅ correct key
+      setUsers(allUsers);
+      setTotalPages(Math.ceil((response.data.total || 0) / limit));
+    })
+    .catch((error) => {
+      handleAxiosError(error, 'Failed to fetch users');
+      setUsers([]);
+    })
+    .finally(() => setLoadingState('users', false));
+};
 
-  const fetchUsers = (page = 1, limit = 10) => {
-    setLoadingState('users', true);
-    axios
-      .get(`${API_URL}/api/users`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-        params: { page, limit },
-      })
-      .then((response) => {
-        const allUsers = [...(response.data.admins || []), ...(response.data.users || [])];
-        setUsers(allUsers);
-        setTotalPages(Math.ceil((response.data.total || 0) / limit));
-      })
-      .catch((error) => {
-        handleAxiosError(error, 'Failed to fetch users');
-        setUsers([]);
-      })
-      .finally(() => setLoadingState('users', false));
-  };
 
   const fetchTransactions = (page: number) => {
     setLoadingState('transactions', true);
