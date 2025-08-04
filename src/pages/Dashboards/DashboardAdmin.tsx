@@ -1,17 +1,34 @@
 import React, { useEffect, useState } from 'react';
+import {
+  Container,
+  Row,
+  Col,
+  Card,
+  Table,
+  Form,
+  Button,
+  Spinner,
+  Pagination,
+  Badge,
+  Alert,
+  ListGroup,
+  ProgressBar,
+} from 'react-bootstrap';
 import { motion } from 'framer-motion';
 import { useForm } from 'react-hook-form';
 import { yupResolver } from '@hookform/resolvers/yup';
 import * as yup from 'yup';
 import { toast } from 'react-toastify';
 import axios, { isAxiosError } from 'axios';
+import { FaUserTie, FaUser, FaExchangeAlt, FaCoins, FaHistory, FaChartLine } from 'react-icons/fa';
 
-interface Employee {
+interface User {
   id: number;
   email: string;
   name: string;
   role: 'ADMIN' | 'EMPLOYEE';
   staffPoints: number | null;
+  lastLogin?: string;
 }
 
 interface Transaction {
@@ -20,36 +37,28 @@ interface Transaction {
   recipientId: number;
   amount: number;
   timestamp: string;
-}
-
-interface AllocatePointsForm {
-  recipientId: number;
-  amount: number;
+  senderName: string;
+  recipientName: string;
 }
 
 interface AdminBalance {
   availablePoints: number;
   allocatedPoints: number;
-}
-
-interface AdminUser {
-  id: number;
-  name: string;
-  email: string;
+  totalTransactions: number;
 }
 
 const schema = yup.object().shape({
   recipientId: yup.number().required('Recipient is required').positive().integer(),
   amount: yup.number().required('Amount is required').positive().integer().min(1, 'Amount must be at least 1'),
+  note: yup.string().max(100, 'Note must be less than 100 characters').optional(),
 });
 
 const API_URL = 'https://backend-g4qt.onrender.com';
 
 export default function DashboardAdmin() {
-  const [users, setUsers] = useState<Employee[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [balance, setBalance] = useState<AdminBalance | null>(null);
-  const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
   const [loading, setLoading] = useState({
     users: false,
     transactions: false,
@@ -58,16 +67,26 @@ export default function DashboardAdmin() {
   });
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const limit = 10;
 
   const {
     register,
     handleSubmit,
     reset,
+    setValue,
+    watch,
     formState: { errors },
-  } = useForm<AllocatePointsForm>({
+  } = useForm({
     resolver: yupResolver(schema),
+    defaultValues: {
+      recipientId: 0,
+      amount: 100,
+      note: '',
+    },
   });
+
+  const recipientId = watch('recipientId');
 
   const setLoadingState = (key: keyof typeof loading, value: boolean) =>
     setLoading((prev) => ({ ...prev, [key]: value }));
@@ -88,37 +107,19 @@ export default function DashboardAdmin() {
     }
   };
 
-  const fetchAdminUser = () => {
-    setLoadingState('users', true);
-    axios
-      .get(`${API_URL}/api/auth/me`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-      })
-      .then((response) => {
-        setAdminUser(response.data);
-      })
-      .catch((error) => {
-        console.error('fetchAdminUser error:', error);
-        handleAxiosError(error, 'Failed to fetch admin details');
-      })
-      .finally(() => setLoadingState('users', false));
-  };
-
   const fetchUsers = (page = 1, limit = 10) => {
     setLoadingState('users', true);
     axios
-      .get(`${API_URL}/api/users/all`, {
+      .get(`${API_URL}/api/users`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
         params: { page, limit },
       })
       .then((response) => {
-        console.log('fetchUsers response:', response.data);
-        const users = Array.isArray(response.data.users) ? response.data.users : [];
-        setUsers(users);
+        const allUsers = [...(response.data.admins || []), ...(response.data.users || [])];
+        setUsers(allUsers);
         setTotalPages(Math.ceil((response.data.total || 0) / limit));
       })
       .catch((error) => {
-        console.error('fetchUsers error:', error);
         handleAxiosError(error, 'Failed to fetch users');
         setUsers([]);
       })
@@ -128,19 +129,14 @@ export default function DashboardAdmin() {
   const fetchTransactions = (page: number) => {
     setLoadingState('transactions', true);
     axios
-      .get<{ transactions: Transaction[]; total: number }>(
-        `${API_URL}/api/transactions?page=${page}&limit=${limit}`,
-        {
-          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-        }
-      )
+      .get(`${API_URL}/api/transactions?page=${page}&limit=${limit}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      })
       .then((response) => {
-        console.log('fetchTransactions response:', response.data);
         setTransactions(response.data.transactions || []);
         setTotalPages(Math.ceil(response.data.total / limit));
       })
       .catch((error) => {
-        console.error('fetchTransactions error:', error);
         handleAxiosError(error, 'Failed to fetch transactions');
         setTransactions([]);
       })
@@ -150,22 +146,52 @@ export default function DashboardAdmin() {
   const fetchAdminBalance = () => {
     setLoadingState('balance', true);
     axios
-      .get<AdminBalance>(`${API_URL}/api/admin/balance`, {
+      .get(`${API_URL}/api/admin/balance`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       })
       .then((response) => {
-        console.log('fetchAdminBalance response:', response.data);
         setBalance({
           availablePoints: Math.floor(Number(response.data.availablePoints)),
           allocatedPoints: Math.floor(Number(response.data.allocatedPoints)),
+          totalTransactions: response.data.totalTransactions || 0,
         });
       })
       .catch((error) => {
-        console.error('fetchAdminBalance error:', error);
         handleAxiosError(error, 'Failed to fetch balance');
         setBalance(null);
       })
       .finally(() => setLoadingState('balance', false));
+  };
+
+  useEffect(() => {
+    fetchUsers(currentPage, limit);
+    fetchTransactions(currentPage);
+    fetchAdminBalance();
+  }, [currentPage, limit]);
+
+  const onSubmit = (data: any) => {
+    setLoadingState('submitting', true);
+    axios
+      .post(`${API_URL}/api/staff-points/allocate`, data, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      })
+      .then(() => {
+        toast.success(`Successfully transferred ${data.amount} points`);
+        reset();
+        fetchUsers();
+        fetchAdminBalance();
+        fetchTransactions(currentPage);
+      })
+      .catch((error) => {
+        handleAxiosError(error, 'Failed to allocate points');
+      })
+      .finally(() => setLoadingState('submitting', false));
+  };
+
+  const handlePageChange = (page: number) => {
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+    }
   };
 
   const initializeAdminPoints = () => {
@@ -180,54 +206,14 @@ export default function DashboardAdmin() {
         fetchAdminBalance();
       })
       .catch((error) => {
-        console.error('initializeAdminPoints error:', error);
         handleAxiosError(error, 'Failed to initialize admin points');
       })
       .finally(() => setLoadingState('submitting', false));
   };
 
-  useEffect(() => {
-    fetchAdminUser();
-    fetchUsers(currentPage, limit);
-    fetchTransactions(currentPage);
-    fetchAdminBalance();
-  }, [currentPage, limit]);
-
-  const onSubmit = (data: AllocatePointsForm) => {
-    const payload = {
-      recipientId: data.recipientId,
-      amount: data.amount,
-    };
-    console.log('Submitting points allocation:', payload);
-    setLoadingState('submitting', true);
-    axios
-      .post(`${API_URL}/api/staff-points/allocate`, payload, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-      })
-      .then(() => {
-        toast.success('Points transferred successfully');
-        reset();
-        fetchUsers();
-        fetchAdminBalance();
-      })
-      .catch((error) => {
-        console.error('allocatePoints error:', error);
-        handleAxiosError(error, 'Failed to allocate points');
-      })
-      .finally(() => setLoadingState('submitting', false));
-  };
-
-  const handlePageChange = (page: number) => {
-    if (page >= 1 && page <= totalPages) {
-      setCurrentPage(page);
-    }
-  };
-
-  const getPaginationRange = () => {
-    const maxPagesToShow = 5;
-    const start = Math.max(1, currentPage - Math.floor(maxPagesToShow / 2));
-    const end = Math.min(totalPages, start + maxPagesToShow - 1);
-    return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+  const selectUserForTransfer = (user: User) => {
+    setSelectedUser(user);
+    setValue('recipientId', user.id);
   };
 
   return (
@@ -235,400 +221,458 @@ export default function DashboardAdmin() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
-      className="min-h-screen bg-gray-50 font-sans"
+      className="bank-dashboard bg-light min-vh-100"
+      style={{ paddingTop: '80px' }}
     >
-      <div className="container mx-auto px-4 py-8 md:py-12">
-        <motion.div
+      <style>
+        {`
+          .bank-dashboard {
+            font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f8f9fa;
+          }
+          
+          .bank-card {
+            border: none;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+          }
+          
+          .bank-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+          }
+          
+          .bank-card-header {
+            background-color: #f8f9fa;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+            font-weight: 600;
+            padding: 1.25rem 1.5rem;
+          }
+          
+          .bank-primary {
+            background-color: #0052cc;
+            border-color: #0052cc;
+          }
+          
+          .bank-primary:hover {
+            background-color: #003d99;
+            border-color: #003d99;
+          }
+          
+          .bank-secondary {
+            background-color: #6c757d;
+            border-color: #6c757d;
+          }
+          
+          .bank-account-balance {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #0052cc;
+          }
+          
+          .bank-user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background-color: #0052cc;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            margin-right: 12px;
+          }
+          
+          .bank-transaction-positive {
+            color: #28a745;
+            font-weight: 600;
+          }
+          
+          .bank-transaction-negative {
+            color: #dc3545;
+            font-weight: 600;
+          }
+          
+          .bank-sidebar {
+            background-color: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            padding: 1.5rem;
+          }
+          
+          .bank-user-list-item {
+            cursor: pointer;
+            transition: background-color 0.2s;
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+          }
+          
+          .bank-user-list-item:hover {
+            background-color: rgba(0, 82, 204, 0.05);
+          }
+          
+          .bank-user-list-item.active {
+            background-color: rgba(0, 82, 204, 0.1);
+            border-left: 3px solid #0052cc;
+          }
+          
+          .bank-form-control {
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            border: 1px solid #e0e0e0;
+          }
+          
+          .bank-form-control:focus {
+            border-color: #0052cc;
+            box-shadow: 0 0 0 0.2rem rgba(0, 82, 204, 0.25);
+          }
+          
+          .bank-icon {
+            margin-right: 8px;
+            color: #0052cc;
+          }
+          
+          @media (max-width: 768px) {
+            .bank-dashboard {
+              padding-top: 60px;
+            }
+            
+            .bank-card {
+              margin-bottom: 1rem;
+            }
+          }
+        `}
+      </style>
+      
+      <Container className="py-4 py-md-5">
+        <motion.h2
           initial={{ y: 20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ duration: 0.5 }}
-          className="mb-8 text-center"
+          className="text-center mb-4 mb-md-5 fw-bold text-dark"
         >
-          <h2 className="text-3xl md:text-4xl font-bold text-gray-800">
-            Welcome, {adminUser?.name || 'Admin'}!
-          </h2>
-          <p className="text-lg text-gray-600 mt-2">Manage your team's points with ease</p>
-        </motion.div>
+          <FaCoins className="bank-icon" />
+          StaffPoints Banking Dashboard
+        </motion.h2>
 
         {/* Balance Overview */}
-        <motion.div
-          initial={{ y: 20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ duration: 0.5, delay: 0.1 }}
-          className="mb-8"
-        >
-          <div className="bg-white shadow-lg rounded-lg p-6">
-            <h3 className="text-xl font-semibold text-gray-800 mb-4">Points Overview</h3>
-            {loading.balance ? (
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-blue-600 mx-auto" />
-              </div>
-            ) : balance ? (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {[
-                  { label: 'Available Points', value: balance.availablePoints, color: 'text-green-600' },
-                  { label: 'Allocated Points', value: balance.allocatedPoints, color: 'text-blue-600' },
-                  {
-                    label: 'Total Points',
-                    value: balance.availablePoints + balance.allocatedPoints,
-                    color: 'text-teal-600',
-                  },
-                ].map((item, index) => (
-                  <motion.div
-                    key={index}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.1, duration: 0.4 }}
-                    className="bg-gray-50 p-4 rounded-lg text-center"
-                  >
-                    <p className="text-sm text-gray-500">{item.label}</p>
-                    <p className={`text-2xl font-bold ${item.color}`}>{item.value.toLocaleString()}</p>
-                  </motion.div>
-                ))}
-              </div>
-            ) : (
-              <div className="bg-yellow-50 text-yellow-700 p-4 rounded-lg">
-                Unable to load balance information
-              </div>
-            )}
-          </div>
-        </motion.div>
-
-        {/* Allocate Points Form & Quick Stats */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          <motion.div
-            initial={{ y: 20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-          >
-            <div className="bg-white shadow-lg rounded-lg p-6">
-              <h3 className="text-xl font-semibold text-gray-800 mb-4">Allocate Points</h3>
-              <form onSubmit={handleSubmit(onSubmit)}>
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Select Recipient
-                  </label>
-                  <select
-                    {...register('recipientId')}
-                    className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                      errors.recipientId ? 'border-red-500' : 'border-gray-300'
-                    }`}
-                    aria-label="Select recipient"
-                  >
-                    <option value="">Select a recipient</option>
-                    {Array.isArray(users) &&
-                      users.map((user) => (
-                        <option key={user.id} value={user.id}>
-                          {user.name} ({user.email}) - {user.role}
-                        </option>
-                      ))}
-                  </select>
-                  {errors.recipientId && (
-                    <p className="text-red-500 text-sm mt-1">{errors.recipientId.message}</p>
-                  )}
-                </div>
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Points Amount
-                  </label>
-                  <input
-                    type="number"
-                    {...register('amount')}
-                    placeholder="Enter points to allocate"
-                    className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                      errors.amount ? 'border-red-500' : 'border-gray-300'
-                    }`}
-                    aria-label="Points amount"
-                  />
-                  {errors.amount && (
-                    <p className="text-red-500 text-sm mt-1">{errors.amount.message}</p>
-                  )}
-                </div>
-                <button
-                  type="submit"
-                  className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition disabled:bg-blue-400"
-                  disabled={loading.submitting}
-                  aria-label={loading.submitting ? 'Submitting points transfer' : 'Transfer points'}
-                >
-                  {loading.submitting ? (
-                    <div className="flex items-center justify-center">
-                      <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-white mr-2" />
-                      Transferring...
-                    </div>
-                  ) : (
-                    'Transfer Points'
-                  )}
-                </button>
-              </form>
-            </div>
-          </motion.div>
-          <motion.div
-            initial={{ y: 20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ duration: 0.5, delay: 0.3 }}
-          >
-            <div className="bg-white shadow-lg rounded-lg p-6 h-full">
-              <h3 className="text-xl font-semibold text-gray-800 mb-4">Quick Stats</h3>
-              {loading.users ? (
-                <div className="text-center">
-                  <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-blue-600 mx-auto" />
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {[
-                    { label: 'Total Users', value: Array.isArray(users) ? users.length : 0 },
-                    { label: 'Recent Transactions', value: `${Array.isArray(transactions) ? transactions.length : 0} this page` },
-                    {
-                      label: 'Points Distributed',
-                      value: Array.isArray(users)
-                        ? `${users.reduce((sum, user) => sum + (user.staffPoints || 0), 0).toLocaleString()} total points`
-                        : '0 total points',
-                    },
-                  ].map((stat, index) => (
-                    <motion.div
-                      key={index}
-                      initial={{ opacity: 0, x: 20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: index * 0.1, duration: 0.4 }}
-                      className="bg-gray-50 p-4 rounded-lg"
-                    >
-                      <p className="text-sm text-gray-500">{stat.label}</p>
-                      <p className="text-xl font-semibold text-gray-800">{stat.value}</p>
-                    </motion.div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </motion.div>
-        </div>
-
-        {/* Initialize Admin Points Button */}
-        <motion.div
-          initial={{ y: 20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ duration: 0.5, delay: 0.4 }}
-          className="mb-8"
-        >
-          <button
-            onClick={initializeAdminPoints}
-            className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition disabled:bg-blue-400"
-            disabled={loading.submitting}
-            aria-label={loading.submitting ? 'Initializing points' : 'Initialize 1B points for admins'}
-          >
-            {loading.submitting ? (
-              <div className="flex items-center justify-center">
-                <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-white mr-2" />
-                Initializing...
-              </div>
-            ) : (
-              'Initialize 1B Points for Admins'
-            )}
-          </button>
-        </motion.div>
-
-        {/* Users Table */}
-        <motion.div
-          initial={{ y: 20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ duration: 0.5, delay: 0.5 }}
-          className="mb-8"
-        >
-          <div className="bg-white shadow-lg rounded-lg p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-semibold text-gray-800">Users</h3>
-              <span className="bg-gray-200 text-gray-800 text-sm px-3 py-1 rounded-full">
-                {Array.isArray(users) ? users.length : 0} records
-              </span>
-            </div>
-            {loading.users ? (
-              <div className="text-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-blue-600 mx-auto" />
-                <p className="mt-2 text-gray-600">Loading users...</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead className="bg-gray-100">
-                    <tr>
-                      <th className="p-3 text-sm font-semibold text-gray-700">ID</th>
-                      <th className="p-3 text-sm font-semibold text-gray-700">Name</th>
-                      <th className="p-3 text-sm font-semibold text-gray-700">Email</th>
-                      <th className="p-3 text-sm font-semibold text-gray-700">Role</th>
-                      <th className="p-3 text-sm font-semibold text-gray-700 text-right">Points</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Array.isArray(users) && users.length > 0 ? (
-                      users.map((user) => (
-                        <motion.tr
-                          key={user.id}
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          transition={{ duration: 0.3 }}
-                          className="border-b hover:bg-gray-50"
-                        >
-                          <td className="p-3 text-sm text-gray-600">{user.id}</td>
-                          <td className="p-3 text-sm text-gray-600">
-                            <div className="flex items-center">
-                              <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mr-2">
-                                {user.name.charAt(0)}
-                              </div>
-                              {user.name}
-                            </div>
-                          </td>
-                          <td className="p-3 text-sm text-gray-600">{user.email}</td>
-                          <td className="p-3 text-sm">
-                            <span
-                              className={`px-2 py-1 rounded-full text-xs ${
-                                user.role === 'ADMIN'
-                                  ? 'bg-blue-100 text-blue-600'
-                                  : 'bg-gray-100 text-gray-600'
-                              }`}
-                            >
-                              {user.role}
-                            </span>
-                          </td>
-                          <td className="p-3 text-sm text-gray-600 text-right font-semibold">
-                            {(user.staffPoints || 0).toLocaleString()}
-                          </td>
-                        </motion.tr>
-                      ))
+        <Row className="mb-4 mb-md-5 g-3 g-md-4">
+          <Col md={6} lg={4}>
+            <Card className="bank-card h-100">
+              <Card.Body className="p-4">
+                <div className="d-flex align-items-center mb-3">
+                  <div className="bg-primary bg-opacity-10 rounded p-2 me-3">
+                    <FaCoins size={24} className="text-primary" />
+                  </div>
+                  <div>
+                    <h6 className="mb-0 text-muted">Available Balance</h6>
+                    {loading.balance ? (
+                      <Spinner animation="border" size="sm" />
                     ) : (
-                      <tr>
-                        <td colSpan={5} className="p-3 text-center text-gray-600">
-                          No users found
-                        </td>
-                      </tr>
+                      <h3 className="bank-account-balance mb-0">
+                        {balance?.availablePoints?.toLocaleString() || '0'} pts
+                      </h3>
                     )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </motion.div>
+                  </div>
+                </div>
+                <ProgressBar
+                  now={balance ? (balance.availablePoints / (balance.availablePoints + balance.allocatedPoints)) * 100 : 0}
+                  variant="primary"
+                  className="mt-3"
+                  style={{ height: '6px' }}
+                />
+              </Card.Body>
+            </Card>
+          </Col>
+          
+          <Col md={6} lg={4}>
+            <Card className="bank-card h-100">
+              <Card.Body className="p-4">
+                <div className="d-flex align-items-center mb-3">
+                  <div className="bg-success bg-opacity-10 rounded p-2 me-3">
+                    <FaExchangeAlt size={24} className="text-success" />
+                  </div>
+                  <div>
+                    <h6 className="mb-0 text-muted">Allocated Points</h6>
+                    {loading.balance ? (
+                      <Spinner animation="border" size="sm" />
+                    ) : (
+                      <h3 className="text-success mb-0">
+                        {balance?.allocatedPoints?.toLocaleString() || '0'} pts
+                      </h3>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-3">
+                  <small className="text-muted">Total distributed to staff</small>
+                </div>
+              </Card.Body>
+            </Card>
+          </Col>
+          
+          <Col md={6} lg={4}>
+            <Card className="bank-card h-100">
+              <Card.Body className="p-4">
+                <div className="d-flex align-items-center mb-3">
+                  <div className="bg-info bg-opacity-10 rounded p-2 me-3">
+                    <FaHistory size={24} className="text-info" />
+                  </div>
+                  <div>
+                    <h6 className="mb-0 text-muted">Total Transactions</h6>
+                    {loading.balance ? (
+                      <Spinner animation="border" size="sm" />
+                    ) : (
+                      <h3 className="text-info mb-0">
+                        {balance?.totalTransactions?.toLocaleString() || '0'}
+                      </h3>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-3">
+                  <small className="text-muted">All time transactions</small>
+                </div>
+              </Card.Body>
+            </Card>
+          </Col>
+        </Row>
 
-        {/* Transaction History */}
-        <motion.div
-          initial={{ y: 20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ duration: 0.5, delay: 0.6 }}
-        >
-          <div className="bg-white shadow-lg rounded-lg p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-semibold text-gray-800">Transaction History</h3>
-              <span className="bg-gray-200 text-gray-800 text-sm px-3 py-1 rounded-full">
-                Page {currentPage} of {totalPages}
-              </span>
-            </div>
-            {loading.transactions ? (
-              <div className="text-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-blue-600 mx-auto" />
-                <p className="mt-2 text-gray-600">Loading transactions...</p>
-              </div>
-            ) : (
-              <>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left">
-                    <thead className="bg-gray-100">
-                      <tr>
-                        <th className="p-3 text-sm font-semibold text-gray-700">ID</th>
-                        <th className="p-3 text-sm font-semibold text-gray-700">Sender</th>
-                        <th className="p-3 text-sm font-semibold text-gray-700">Recipient</th>
-                        <th className="p-3 text-sm font-semibold text-gray-700 text-right">Amount</th>
-                        <th className="p-3 text-sm font-semibold text-gray-700">Date</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Array.isArray(transactions) && transactions.length > 0 ? (
-                        transactions.map((transaction) => {
-                          const sender =
-                            users.find((u) => u.id === transaction.senderId)?.name || 'System';
-                          const recipient =
-                            users.find((u) => u.id === transaction.recipientId)?.name || 'Unknown';
-                          return (
-                            <motion.tr
-                              key={transaction.id}
-                              initial={{ opacity: 0 }}
-                              animate={{ opacity: 1 }}
-                              transition={{ duration: 0.3 }}
-                              className="border-b hover:bg-gray-50"
-                            >
-                              <td className="p-3 text-sm text-gray-600">{transaction.id}</td>
-                              <td className="p-3 text-sm text-gray-600">{sender}</td>
-                              <td className="p-3 text-sm text-gray-600">{recipient}</td>
-                              <td className="p-3 text-sm text-right">
-                                <span
-                                  className={`px-2 py-1 rounded-full text-xs ${
-                                    transaction.amount > 0
-                                      ? 'bg-green-100 text-green-600'
-                                      : 'bg-red-100 text-red-600'
-                                  }`}
-                                >
-                                  {transaction.amount > 0 ? '+' : ''}
-                                  {transaction.amount.toLocaleString()}
-                                </span>
-                              </td>
-                              <td className="p-3 text-sm text-gray-600">
-                                {new Date(transaction.timestamp).toLocaleString('en-US', {
-                                  year: 'numeric',
-                                  month: 'short',
-                                  day: 'numeric',
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
-                              </td>
-                            </motion.tr>
-                          );
-                        })
-                      ) : (
-                        <tr>
-                          <td colSpan={5} className="p-3 text-center text-gray-600">
-                            No transactions found
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="flex justify-center mt-6">
-                  <nav className="flex space-x-2">
-                    <button
-                      onClick={() => handlePageChange(currentPage - 1)}
-                      disabled={currentPage === 1}
-                      className="px-3 py-1 rounded-lg text-sm bg-gray-200 text-gray-600 disabled:opacity-50"
-                      aria-label="Previous page"
-                    >
-                      Prev
-                    </button>
-                    {getPaginationRange().map((pageNum) => (
-                      <button
-                        key={pageNum}
-                        onClick={() => handlePageChange(pageNum)}
-                        className={`px-3 py-1 rounded-lg text-sm ${
-                          pageNum === currentPage
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-gray-200 text-gray-600'
-                        }`}
-                        aria-label={`Page ${pageNum}`}
+        {/* Main Content */}
+        <Row className="g-4">
+          {/* User List and Transfer Form */}
+          <Col lg={4}>
+            <Card className="bank-card h-100">
+              <Card.Header className="bank-card-header d-flex align-items-center">
+                <FaUserTie className="bank-icon" />
+                <span>Staff Directory</span>
+                <Badge bg="light" text="dark" className="ms-auto">
+                  {users.length} users
+                </Badge>
+              </Card.Header>
+              <Card.Body className="p-0">
+                {loading.users ? (
+                  <div className="text-center py-5">
+                    <Spinner animation="border" variant="primary" />
+                  </div>
+                ) : (
+                  <ListGroup variant="flush">
+                    {users.map((user) => (
+                      <ListGroup.Item
+                        key={user.id}
+                        className={`bank-user-list-item ${recipientId === user.id ? 'active' : ''}`}
+                        onClick={() => selectUserForTransfer(user)}
                       >
-                        {pageNum}
-                      </button>
+                        <div className="d-flex align-items-center">
+                          <div className="bank-user-avatar">
+                            {user.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <h6 className="mb-0">{user.name}</h6>
+                            <small className="text-muted">
+                              {user.role === 'ADMIN' ? (
+                                <Badge bg="primary" pill>Admin</Badge>
+                              ) : (
+                                <Badge bg="secondary" pill>Employee</Badge>
+                              )}{' '}
+                              • {user.email}
+                            </small>
+                          </div>
+                          <div className="ms-auto text-end">
+                            <strong>{user.staffPoints?.toLocaleString() || '0'} pts</strong>
+                          </div>
+                        </div>
+                      </ListGroup.Item>
                     ))}
-                    <button
-                      onClick={() => handlePageChange(currentPage + 1)}
-                      disabled={currentPage === totalPages}
-                      className="px-3 py-1 rounded-lg text-sm bg-gray-200 text-gray-600 disabled:opacity-50"
-                      aria-label="Next page"
-                    >
-                      Next
-                    </button>
-                  </nav>
-                </div>
-              </>
-            )}
-          </div>
-        </motion.div>
-      </div>
+                  </ListGroup>
+                )}
+              </Card.Body>
+            </Card>
+          </Col>
+
+          {/* Transfer Form and Recent Transactions */}
+          <Col lg={8}>
+            <Row className="g-4">
+              <Col xs={12}>
+                <Card className="bank-card">
+                  <Card.Header className="bank-card-header d-flex align-items-center">
+                    <FaExchangeAlt className="bank-icon" />
+                    <span>Transfer Points</span>
+                  </Card.Header>
+                  <Card.Body>
+                    <Form onSubmit={handleSubmit(onSubmit)}>
+                      <Row className="g-3">
+                        <Col md={6}>
+                          <Form.Group>
+                            <Form.Label>Recipient</Form.Label>
+                            <Form.Control
+                              as="select"
+                              {...register('recipientId')}
+                              className={`bank-form-control ${errors.recipientId ? 'is-invalid' : ''}`}
+                              disabled={loading.users}
+                            >
+                              <option value="">Select recipient</option>
+                              {users.map((user) => (
+                                <option key={user.id} value={user.id}>
+                                  {user.name} ({user.role === 'ADMIN' ? 'Admin' : 'Employee'})
+                                </option>
+                              ))}
+                            </Form.Control>
+                            {errors.recipientId && (
+                              <div className="invalid-feedback">{errors.recipientId.message}</div>
+                            )}
+                          </Form.Group>
+                        </Col>
+                        <Col md={6}>
+                          <Form.Group>
+                            <Form.Label>Amount</Form.Label>
+                            <Form.Control
+                              type="number"
+                              {...register('amount')}
+                              className={`bank-form-control ${errors.amount ? 'is-invalid' : ''}`}
+                              placeholder="Enter amount"
+                            />
+                            {errors.amount && (
+                              <div className="invalid-feedback">{errors.amount.message}</div>
+                            )}
+                          </Form.Group>
+                        </Col>
+                        <Col xs={12}>
+                          <Form.Group>
+                            <Form.Label>Note (Optional)</Form.Label>
+                            <Form.Control
+                              as="textarea"
+                              {...register('note')}
+                              className="bank-form-control"
+                              rows={2}
+                              placeholder="Add a note about this transfer"
+                            />
+                          </Form.Group>
+                        </Col>
+                        <Col xs={12}>
+                          <div className="d-flex justify-content-between align-items-center">
+                            <Button
+                              variant="primary"
+                              type="submit"
+                              className="bank-primary"
+                              disabled={loading.submitting}
+                            >
+                              {loading.submitting ? (
+                                <Spinner size="sm" animation="border" />
+                              ) : (
+                                <>
+                                  <FaExchangeAlt className="me-2" />
+                                  Transfer Points
+                                </>
+                              )}
+                            </Button>
+                            <Button
+                              variant="outline-primary"
+                              onClick={initializeAdminPoints}
+                              disabled={loading.submitting}
+                            >
+                              {loading.submitting ? (
+                                <Spinner size="sm" animation="border" />
+                              ) : (
+                                'Initialize Points'
+                              )}
+                            </Button>
+                          </div>
+                        </Col>
+                      </Row>
+                    </Form>
+                  </Card.Body>
+                </Card>
+              </Col>
+
+              <Col xs={12}>
+                <Card className="bank-card">
+                  <Card.Header className="bank-card-header d-flex align-items-center">
+                    <FaHistory className="bank-icon" />
+                    <span>Recent Transactions</span>
+                    <Badge bg="light" text="dark" className="ms-auto">
+                      Page {currentPage} of {totalPages}
+                    </Badge>
+                  </Card.Header>
+                  <Card.Body>
+                    {loading.transactions ? (
+                      <div className="text-center py-5">
+                        <Spinner animation="border" variant="primary" />
+                      </div>
+                    ) : (
+                      <>
+                        <div className="table-responsive">
+                          <Table hover className="align-middle">
+                            <thead>
+                              <tr>
+                                <th>ID</th>
+                                <th>From</th>
+                                <th>To</th>
+                                <th>Amount</th>
+                                <th>Date</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {transactions.map((tx) => (
+                                <tr key={tx.id}>
+                                  <td>{tx.id}</td>
+                                  <td>
+                                    <div className="d-flex align-items-center">
+                                      <div className="bank-user-avatar small">
+                                        {tx.senderName.charAt(0)}
+                                      </div>
+                                      {tx.senderName}
+                                    </div>
+                                  </td>
+                                  <td>
+                                    <div className="d-flex align-items-center">
+                                      <div className="bank-user-avatar small">
+                                        {tx.recipientName.charAt(0)}
+                                      </div>
+                                      {tx.recipientName}
+                                    </div>
+                                  </td>
+                                  <td className={tx.amount > 0 ? 'bank-transaction-positive' : 'bank-transaction-negative'}>
+                                    {tx.amount > 0 ? '+' : ''}{tx.amount.toLocaleString()} pts
+                                  </td>
+                                  <td>
+                                    {new Date(tx.timestamp).toLocaleString()}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </Table>
+                        </div>
+                        <div className="d-flex justify-content-center mt-3">
+                          <Pagination>
+                            <Pagination.Prev
+                              onClick={() => handlePageChange(currentPage - 1)}
+                              disabled={currentPage === 1}
+                            />
+                            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => (
+                              <Pagination.Item
+                                key={i + 1}
+                                active={i + 1 === currentPage}
+                                onClick={() => handlePageChange(i + 1)}
+                              >
+                                {i + 1}
+                              </Pagination.Item>
+                            ))}
+                            <Pagination.Next
+                              onClick={() => handlePageChange(currentPage + 1)}
+                              disabled={currentPage === totalPages}
+                            />
+                          </Pagination>
+                        </div>
+                      </>
+                    )}
+                  </Card.Body>
+                </Card>
+              </Col>
+            </Row>
+          </Col>
+        </Row>
+      </Container>
     </motion.div>
   );
 }
