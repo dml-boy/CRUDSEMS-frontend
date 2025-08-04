@@ -65,7 +65,12 @@ export default function DashboardAdmin() {
     balance: false,
     submitting: false,
   });
-  const [currentPage, setCurrentPage] = useState(1);
+const [userPage, setUserPage] = useState(1);
+const [userTotalPages, setUserTotalPages] = useState(1);
+
+const [transactionPage, setTransactionPage] = useState(1);
+const [transactionTotalPages, setTransactionTotalPages] = useState(1);
+
   const [totalPages, setTotalPages] = useState(1);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const limit = 10;
@@ -116,7 +121,8 @@ const fetchUsers = (page = 1, limit = 10) => {
     .then((response) => {
       const allUsers = response.data.users || []; // ✅ correct key
       setUsers(allUsers);
-      setTotalPages(Math.ceil((response.data.total || 0) / limit));
+    setUserTotalPages(Math.ceil((response.data.total || 0) / limit));
+
     })
     .catch((error) => {
       handleAxiosError(error, 'Failed to fetch users');
@@ -140,7 +146,8 @@ const fetchUsers = (page = 1, limit = 10) => {
         })) || [];
         
         setTransactions(processedTransactions);
-        setTotalPages(Math.ceil(response.data.total / limit));
+setTransactionTotalPages(Math.ceil(response.data.total / limit));
+
       })
       .catch((error) => {
         handleAxiosError(error, 'Failed to fetch transactions');
@@ -169,11 +176,18 @@ const fetchUsers = (page = 1, limit = 10) => {
       .finally(() => setLoadingState('balance', false));
   };
 
-  useEffect(() => {
-    fetchUsers(currentPage, limit);
-    fetchTransactions(currentPage);
-    fetchAdminBalance();
-  }, [currentPage, limit]);
+ useEffect(() => {
+  fetchUsers(userPage, limit);
+}, [userPage, limit]);
+
+useEffect(() => {
+  fetchTransactions(transactionPage);
+}, [transactionPage]);
+
+useEffect(() => {
+  fetchAdminBalance();
+}, []);
+
 
   const onSubmit = (data: any) => {
     setLoadingState('submitting', true);
@@ -186,7 +200,7 @@ const fetchUsers = (page = 1, limit = 10) => {
         reset();
         fetchUsers();
         fetchAdminBalance();
-        fetchTransactions(currentPage);
+        fetchTransactions(transactionPage);
       })
       .catch((error) => {
         handleAxiosError(error, 'Failed to allocate points');
@@ -196,7 +210,7 @@ const fetchUsers = (page = 1, limit = 10) => {
 
   const handlePageChange = (page: number) => {
     if (page >= 1 && page <= totalPages) {
-      setCurrentPage(page);
+      // transactionTotalPages(page);
     }
   };
 
@@ -603,7 +617,7 @@ const fetchUsers = (page = 1, limit = 10) => {
                     <FaHistory className="bank-icon" />
                     <span>Recent Transactions</span>
                     <Badge bg="light" text="dark" className="ms-auto">
-                      Page {currentPage} of {totalPages}
+                      Page {} of {totalPages}
                     </Badge>
                   </Card.Header>
                   <Card.Body>
@@ -660,27 +674,53 @@ const fetchUsers = (page = 1, limit = 10) => {
                             </tbody>
                           </Table>
                         </div>
-                        <div className="d-flex justify-content-center mt-3">
-                          <Pagination>
-                            <Pagination.Prev
-                              onClick={() => handlePageChange(currentPage - 1)}
-                              disabled={currentPage === 1}
-                            />
-                            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => (
-                              <Pagination.Item
-                                key={i + 1}
-                                active={i + 1 === currentPage}
-                                onClick={() => handlePageChange(i + 1)}
-                              >
-                                {i + 1}
-                              </Pagination.Item>
-                            ))}
-                            <Pagination.Next
-                              onClick={() => handlePageChange(currentPage + 1)}
-                              disabled={currentPage === totalPages}
-                            />
-                          </Pagination>
-                        </div>
+                      <div className="d-flex justify-content-center mt-3">
+  <Pagination>
+    <Pagination.First
+      onClick={() => setTransactionPage(1)}
+      disabled={transactionPage === 1}
+    />
+    <Pagination.Prev
+      onClick={() => setTransactionPage(transactionPage - 1)}
+      disabled={transactionPage === 1}
+    />
+
+    {(() => {
+      const pages = [];
+      const maxVisible = 5;
+      let start = Math.max(transactionPage - Math.floor(maxVisible / 2), 1);
+      let end = Math.min(start + maxVisible - 1, transactionTotalPages);
+
+      if (end - start < maxVisible - 1) {
+        start = Math.max(end - maxVisible + 1, 1);
+      }
+
+      for (let i = start; i <= end; i++) {
+        pages.push(
+          <Pagination.Item
+            key={i}
+            active={i === transactionPage}
+            onClick={() => setTransactionPage(i)}
+          >
+            {i}
+          </Pagination.Item>
+        );
+      }
+
+      return pages;
+    })()}
+
+    <Pagination.Next
+      onClick={() => setTransactionPage(transactionPage + 1)}
+      disabled={transactionPage === transactionTotalPages}
+    />
+    <Pagination.Last
+      onClick={() => setTransactionPage(transactionTotalPages)}
+      disabled={transactionPage === transactionTotalPages}
+    />
+  </Pagination>
+</div>
+
                       </>
                     )}
                   </Card.Body>
