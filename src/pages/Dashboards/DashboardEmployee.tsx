@@ -44,25 +44,8 @@ export default function DashboardEmployee() {
   const token = localStorage.getItem('token');
   const headers = { Authorization: `Bearer ${token}` };
 
-  const fetchData = async () => {
-    
-
-
-  useEffect(() => {
-    fetchData();
-    return () => setLoading(false);
-  }, [user]);
-
  
-  };
 
-  if (loading || !currentUserData) {
-    return (
-      <div className="d-flex justify-content-center align-items-center min-vh-100">
-        <Spinner animation="border" />
-      </div>
-    );
-  }
 
   return (
     <motion.div
@@ -79,7 +62,7 @@ export default function DashboardEmployee() {
           transition={{ duration: 0.6 }}
           className="text-center mb-4 fw-bold text-primary"
         >
-          Welcome, {currentUserData.name}
+          {/* Welcome, {currentUserData.name} */}
         </motion.h2>
 
         {/* Points Balance */}
@@ -88,7 +71,7 @@ export default function DashboardEmployee() {
             <Card className="text-center shadow border-0">
               <Card.Body>
                 <Card.Title className="fs-4 fw-semibold">Your StaffPoints Balance</Card.Title>
-                <h3 className="text-success fw-bold display-6">{currentUserData.staffPoints}</h3>
+                {/* <h3 className="text-success fw-bold display-6">{currentUserData.staffPoints}</h3> */}
               </Card.Body>
             </Card>
           </Col>
