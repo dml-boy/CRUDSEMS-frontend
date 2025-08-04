@@ -37,8 +37,8 @@ interface Transaction {
   recipientId: number;
   amount: number;
   timestamp: string;
-  senderName: string;
-  recipientName: string;
+  senderName?: string;
+  recipientName?: string;
 }
 
 interface AdminBalance {
@@ -133,7 +133,13 @@ export default function DashboardAdmin() {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       })
       .then((response) => {
-        setTransactions(response.data.transactions || []);
+        const processedTransactions = response.data.transactions?.map((tx: Transaction) => ({
+          ...tx,
+          senderName: tx.senderName || 'System',
+          recipientName: tx.recipientName || 'Unknown'
+        })) || [];
+        
+        setTransactions(processedTransactions);
         setTotalPages(Math.ceil(response.data.total / limit));
       })
       .catch((error) => {
@@ -283,6 +289,12 @@ export default function DashboardAdmin() {
             justify-content: center;
             font-weight: 600;
             margin-right: 12px;
+          }
+
+          .bank-user-avatar.small {
+            width: 30px;
+            height: 30px;
+            font-size: 0.8rem;
           }
           
           .bank-transaction-positive {
@@ -613,33 +625,38 @@ export default function DashboardAdmin() {
                               </tr>
                             </thead>
                             <tbody>
-                              {transactions.map((tx) => (
-                                <tr key={tx.id}>
-                                  <td>{tx.id}</td>
-                                  <td>
-  <div className="d-flex align-items-center">
-    <div className="bank-user-avatar small">
-      {tx.senderName?.charAt(0) || 'S'}
-    </div>
-    {tx.senderName || 'System'}
-  </div>
-</td>
-                                  <td>
-                                    <div className="d-flex align-items-center">
-                                      <div className="bank-user-avatar small">
-                                        {tx.recipientName.charAt(0)}
+                              {transactions.map((tx) => {
+                                const senderInitial = tx.senderName?.charAt(0)?.toUpperCase() || 'S';
+                                const recipientInitial = tx.recipientName?.charAt(0)?.toUpperCase() || 'R';
+                                
+                                return (
+                                  <tr key={tx.id}>
+                                    <td>{tx.id}</td>
+                                    <td>
+                                      <div className="d-flex align-items-center">
+                                        <div className="bank-user-avatar small">
+                                          {senderInitial}
+                                        </div>
+                                        {tx.senderName}
                                       </div>
-                                      {tx.recipientName}
-                                    </div>
-                                  </td>
-                                  <td className={tx.amount > 0 ? 'bank-transaction-positive' : 'bank-transaction-negative'}>
-                                    {tx.amount > 0 ? '+' : ''}{tx.amount.toLocaleString()} pts
-                                  </td>
-                                  <td>
-                                    {new Date(tx.timestamp).toLocaleString()}
-                                  </td>
-                                </tr>
-                              ))}
+                                    </td>
+                                    <td>
+                                      <div className="d-flex align-items-center">
+                                        <div className="bank-user-avatar small">
+                                          {recipientInitial}
+                                        </div>
+                                        {tx.recipientName}
+                                      </div>
+                                    </td>
+                                    <td className={tx.amount > 0 ? 'bank-transaction-positive' : 'bank-transaction-negative'}>
+                                      {tx.amount > 0 ? '+' : ''}{tx.amount.toLocaleString()} pts
+                                    </td>
+                                    <td>
+                                      {new Date(tx.timestamp).toLocaleString()}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
                             </tbody>
                           </Table>
                         </div>
