@@ -617,13 +617,13 @@ export default function DashboardAdmin() {
                                 <tr key={tx.id}>
                                   <td>{tx.id}</td>
                                   <td>
-                                    <div className="d-flex align-items-center">
-                                      <div className="bank-user-avatar small">
-                                        {tx.senderName.charAt(0)}
-                                      </div>
-                                      {tx.senderName}
-                                    </div>
-                                  </td>
+  <div className="d-flex align-items-center">
+    <div className="bank-user-avatar small">
+      {tx.senderName?.charAt(0) || 'S'}
+    </div>
+    {tx.senderName || 'System'}
+  </div>
+</td>
                                   <td>
                                     <div className="d-flex align-items-center">
                                       <div className="bank-user-avatar small">
